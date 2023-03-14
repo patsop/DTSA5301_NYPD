@@ -1,0 +1,182 @@
+---
+title: "NYPD Shooting Incidents"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Warning: Non-standard packages installed
+
+As stated in the task, I will first report the non-standard R packages, used in this rmd. I have commented out parts of the code block for "question3", so that you are able to knit the document without installing additional packages. If you want to see the alluvial diagram, plotted in the knitted html version provided, you have to remove the comment characters in the "question3" code block and install the packages, reported at the end of this document, especially the ggplot extension ggalluvial.
+
+## Description of the dataset
+
+The following table is based on the information given at the NYPD website.
+
+Field Name | Description
+------------- | -------------
+INCIDENT_KEY | Randomly generated persistent ID for each incident
+OCCUR_DATE | Exact date of the shooting incident
+OCCUR_TIME | Exact time of the shooting incident
+BORO | Borough where the shooting incident occurred
+PRECINCT | Precinct where the shooting incident occurred
+JURISDICTION_CODE | Jurisdiction where the shooting incident occurred. Jurisdiction codes 0(Patrol), 1(Transit) and 2(Housing) represent NYPD whilst codes 3 and more represent non NYPD jurisdictions
+LOCATION_DESC | Location of the shooting incident
+STATISTICAL_MURDER_FLAG | Shooting resulted in the victim’s death which would be counted as a murder
+PERP_AGE_GROUP |Perpetrator’s age within a category
+PERP_SEX | Perpetrator’s sex description
+PERP_RACE |Perpetrator’s race description
+VIC_AGE_GROUP | Victim’s age within a category
+VIC_SEX | Victim’s sex description
+VIC_RACE | Victim’s race description
+X_COORD_CD | Midblock X-coordinate for New York State Plane Coordinate System, Long Island Zone, NAD 83, units feet (FIPS 3104)
+Y_COORD_CD | Midblock Y-coordinate for New York State Plane Coordinate System, Long Island Zone, NAD 83, units feet (FIPS 3104)
+Latitude | Latitude coordinate for Global Coordinate System, WGS 1984, decimal degrees (EPSG 4326)
+Longitude | Longitude coordinate for Global Coordinate System, WGS 1984, decimal degrees (EPSG 4326)
+
+Because of the information, available on the NYPD website we won't include the exact geo locations in our analysis, because of the following reasons. The website states that, "Shooting incidents occurring anywhere other than at an intersection are geo-located to the middle of the nearest street segment where appropriate". Furthermore it says that, "any attempt to match the approximate location of the incident to an exact address or link to other datasets is not recommended" and that "many other shooting incidents that were not able to be geo-coded (for example, due to an invalid address) have been located as occurring at the police station house within the precinct of occurrence." Additionally, "Shooting incidents occurring in open areas such as parks or beaches may be geo-coded as occurring on streets or intersections bordering the area and "Shooting incidents occurring on a moving train on transit systems are geo-coded as occurring at the train’s next stop". This all would possibly lead to falls claims resulting from the analysis of the geo location.
+
+## Reading, Cleaning and Checking the summary
+
+During the read-in process we already set the appropriate data types according to the data description above.
+This is possible with the read_csv command of the readr package.
+
+```{r readin and drop na, echo=TRUE}
+library(tidyverse)
+data <- readr::read_csv(url("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"), col_types=cols("i",col_date("%m/%d/%Y"),"t","_","_","_","_","l","f","f","_","f","f","_","_","_","_","_","_"))
+```
+
+Afterwards we check for missing data and see, that only PERP_AGE_GROUP and PERP_SEX contain missing values.
+
+```{r search na, echo=TRUE}
+sapply(data, function(x) sum(is.na(x)))
+```
+
+The respective data objects will be removed by the drop_na command.
+After cleaning the summary of the dataset looks as follows:
+
+```{r drop na, echo=TRUE}
+data = drop_na(data)
+summary(data)
+```
+
+Following exploratory data analysis (EDA) was not used in the final rmd:
+
+```{r droped, echo=TRUE}
+#for (col in colnames(data)){
+#  data %>% count({{col}}, sort=TRUE)
+#} does not print the correct output, why?
+
+#data %>% count(INCIDENT_KEY, sort=TRUE) # 18 victims max. per incident
+#data %>% count(STATISTICAL_MURDER_FLAG, sort=TRUE) # About 15% murder
+#data %>% count(PERP_AGE_GROUP, sort=TRUE) # Most perp. between 18 and 24 / 3 invalid values
+#data %>% count(PERP_SEX, sort=TRUE) # Most perp. male / Also some Unknow gender "U"
+#data %>% count(VIC_AGE_GROUP, sort=TRUE) # Most vict. 18 to 24 / some "UNKNOWN"
+#data %>% count(VIC_SEX, sort=TRUE) # Most vict. male / some unknown "U"
+#data %>% count(OCCUR_TIME, sort=TRUE)
+
+#df$DeviceTime <- as.POSIXct(paste(df$Date, df$Time), format="%Y-%m-%d %H:%M:%S")
+```
+
+## Research questions
+
+1. How many shooting incidents (cases were victims are injured) end fatally for one or more victims?
+
+To answer this question, we have to group our data by INCIDENT_KEY, as the dataset contains duplicate incidents keys in cases where there is more than one victim. Afterwards we have to summarize the STATISTICAL_MURDER_FLAG of these groups and set it to TRUE if any of the single flags is true. Finally we count the number of TRUE and FALSE.
+
+As a result we get, that ...
+
+```{r question1, echo=TRUE}
+question1 = data %>%  group_by(INCIDENT_KEY) %>% summarise(murder = any(STATISTICAL_MURDER_FLAG)) %>% count(murder, sort=TRUE)
+
+percfatal = as.numeric(filter(question1, murder==TRUE) %>% select(n))/as.numeric(summarize(question1, n=sum(n))) * 100
+
+cat(round(percfatal,1)," percent of incidents in the historic dataset end fatal for one or more victims.")
+```
+
+2. How are incidents distributed over the day?
+
+We will create a histogram with a binwidth of one hour to answer this question. As input parameters we again use the data, grouped by INCIDENT_KEY and plot the distribution of the OCCUR_TIME feature in the histogram.
+
+```{r question2, echo=TRUE}
+question2 = data %>% group_by(INCIDENT_KEY) %>% summarise(time = first(OCCUR_TIME))
+ggplot(question2, aes(x=time)) + 
+  geom_histogram(binwidth=60*60) +# as posixct time object are stored in seconds
+  scale_x_continuous(breaks=seq(0,24*60*60,3*60*60),labels=c(seq(0,24,3))) +
+  xlab("Time of day in hours") +
+  ylab("# of incidents")
+
+```
+
+So, we can see, that most of the shooting incidents occur at night and the rate of shootings is increasing steadily, starting from noon.
+
+3. How is the distribution of age-groups when compared between perpetrators and victims?
+
+A Alluvial diagram will be helpful in answering this question as it can visualize the relation of the two variables (perpetrator and victim age groups) and their respective connection.
+
+We first have to prepare our data. As the age-group of 65+ is hardly represented in this dataset we will omit this age-group. Aftwerwards we will filter our dataset by each combination of perpetrator and victim age-group and count the number of occurences of these combinations. The resulting information will be the input for our Alluvial diagram. It shows on the left the distribution of perpetrator age-groups and their connection to the victim age-groups in respectively coloured "streams".
+
+```{r question3, echo=TRUE}
+#library(ggalluvial)
+
+groups = c("18-24","25-44","<18","45-64") # without +65 because of low number of datapoints
+question3 = tribble(
+  ~PERP_AGE_GROUP, ~FREQ, ~VIC_AGE_GROUP
+)
+for (i in groups) {
+  for (j in groups) {
+    n = nrow(data  %>% filter(PERP_AGE_GROUP == i & VIC_AGE_GROUP == j))
+    question3 = add_row(question3, PERP_AGE_GROUP = i, VIC_AGE_GROUP = j, FREQ = n)
+  }
+}
+#ggplot(data = question3,
+#       aes(axis1 = PERP_AGE_GROUP, axis2 = VIC_AGE_GROUP, y = FREQ)) +
+#  geom_alluvium(aes(fill = VIC_AGE_GROUP)) +
+#  geom_stratum() +
+#  geom_text(stat = "stratum", aes(label = stat(stratum))) +
+#  scale_x_discrete(limits = c("PERP_AGE_GROUP", "VIC_AGE_GROUP"),
+#                   expand = c(0.15, 0.05)) +
+#  theme_void()
+```
+
+The diagram shows, that most victims and perpetrators come from the same age-group with some cases being one age-group apart and little outliers with a bigger spread.
+
+4. Is the sex of the victim a statistically significant factor in determining the probability of the victim dieing?
+
+We first try to answer this question by creating a logistic regression model, with the victim sex as an input and the STATISTICAL_MURDER_FLAG as an output.
+
+```{r question4, echo=TRUE}
+question4 = data %>% filter(VIC_SEX == "M" | VIC_SEX == "F")
+linmod = glm(data=question4, STATISTICAL_MURDER_FLAG~VIC_SEX, family="binomial")
+summary(linmod)
+```
+
+The summary of the model shows, that yes the sex of the victim is a statistically significant feature of this model. However, the summary shows also, that this is not the correct question to ask in this case, as the model is very bad in explaining the variability in the data. This can be seen in the residual deviance of the model, which is nearly as big as the deviance of the null model with only an intercept term. In this case, this would be a model, which always predicts TRUE or FALSE. So the victims sex is a statistically signficant parameter, but it should not be used to predict the fact if the vicitm is murdered.
+
+In this easy case, where we have only one two-factorial input feature and a binary ouput, we can simply check whether the statement above is plausible by calculating the percentage of male and female vicitms dieing.
+
+```{r plausi, echo=TRUE}
+a = round(nrow(data %>% filter(VIC_SEX == "M" & STATISTICAL_MURDER_FLAG == TRUE))/nrow(data %>% filter(VIC_SEX == "M"))*100,1)
+b = round(nrow(data %>% filter(VIC_SEX == "F" & STATISTICAL_MURDER_FLAG == TRUE))/nrow(data %>% filter(VIC_SEX == "F"))*100,1)
+cat("The percentage of male victims, dieing, is",a," percent, whereas the percentage for female victims is",b," percent")
+```
+
+These perecentages are very close, which underlines the fact, given above, that the victims sex is not a good indicator of whether the victim will die after the incident.
+
+## Discussion of bias
+
+The data and my analysis might be prone to multiple cases of bias.
+With respect to the data, we do not know whether the level of reporting to the police is identical for the different subgroups of the society contained in this dataset.
+Regarding my analysis, I can identify the following bias.
+First of all, the questions I decided to pose and answer in this analysis are the first instance of bias, as I myself have created these questions, based on my interests and past experiences.
+Second, the exclusion of incidents, where no sexes where reported, could be a bias, as we do not know about the distribution of sex in these cases.
+Finally, the binwidth in my histogram was choosen according to my view. We can not say for sure if a different binwidth would lead to different conclusions.
+
+## Appendix: Report of non-standard R packages
+
+```{r used_pack, echo=TRUE}
+installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
+``` 
+
